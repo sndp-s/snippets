@@ -22,6 +22,11 @@ class SnippetListCreateView(generics.ListCreateAPIView):
         return queryset.distinct()
 
 
+class SnippetDetailView(generics.RetrieveUpdateAPIView):
+    queryset = Snippet.objects.all()
+    serializer_class = SnippetSerializer
+
+
 class SnippetDeleteView(generics.DestroyAPIView):
     queryset = Snippet.objects.all()
     serializer_class = SnippetSerializer
