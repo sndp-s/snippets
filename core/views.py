@@ -38,7 +38,6 @@ class TagListCreateView(generics.ListCreateAPIView):
     serializer_class = TagSerializer
 
 
-# TODO prevent tag deletion if it is associated with a snippet
 class TagDeleteView(generics.DestroyAPIView):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
