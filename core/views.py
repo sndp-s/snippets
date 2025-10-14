@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from .serializers import SnippetSerializer, TagSerializer
 
 
+# TODO replace tag name with tag id in create new snippet endpoint
 class SnippetListCreateView(generics.ListCreateAPIView):
     serializer_class = SnippetSerializer
 
