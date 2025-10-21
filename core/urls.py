@@ -5,6 +5,7 @@ from .views import (
 )
 
 
+# NOTE | TODO: reconsider /delete in delete snippets and delete tags path
 urlpatterns = [
     path('snippets/', SnippetListCreateView.as_view(), name='snippet-list-create'),
     path('snippets/<int:pk>/', SnippetDetailView.as_view(), name='snippet-detail'),
