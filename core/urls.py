@@ -1,16 +1,19 @@
 from django.urls import path
 from .views import (
-    SnippetListCreateView, SnippetDetailView, SnippetDeleteView,
-    TagListCreateView, TagDeleteView
+    SnippetCreateView,
+    SnippetUpdateView,
+    SnippetDeleteView,
+    SnippetDetailView,
+    SnippetChildrenView,
+    SnippetListView,
 )
 
-
-# NOTE | TODO: reconsider /delete in delete snippets and delete tags path
 urlpatterns = [
-    path('snippets/', SnippetListCreateView.as_view(), name='snippet-list-create'),
+    path('snippets/', SnippetListView.as_view(), name='snippet-list'),
+    path('snippets/', SnippetCreateView.as_view(), name='snippet-create'),
     path('snippets/<int:pk>/', SnippetDetailView.as_view(), name='snippet-detail'),
-    path('snippets/<int:pk>/delete/', SnippetDeleteView.as_view(), name='snippet-delete'),
-
-    path('tags/', TagListCreateView.as_view(), name='tag-list-create'),
-    path('tags/<int:pk>/delete/', TagDeleteView.as_view(), name='tag-delete'),
+    path('snippets/<int:pk>/', SnippetUpdateView.as_view(), name='snippet-update'),
+    path('snippets/<int:pk>/', SnippetDeleteView.as_view(), name='snippet-delete'),
+    path('snippets/<int:pk>/children/',
+         SnippetChildrenView.as_view(), name='snippet-children'),
 ]
