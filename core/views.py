@@ -7,27 +7,32 @@ from .models import Snippet
 from .serializers import SnippetSerializer
 
 
-class SnippetCreateView(generics.CreateAPIView):
+class SnippetListCreateView(generics.ListCreateAPIView):
     """
-    POST /snippets/
-    Create a new snippet.
-    Payload:
-    {
-        "title": "My Note",
-        "text": "Some idea",
-        "parent": 5   # optional
-    }
+    GET → list top-level snippets
+    POST → create new snippet (with or without parent)
     """
     serializer_class = SnippetSerializer
-    queryset = Snippet.objects.all()
+    queryset = Snippet.objects.all().order_by('-created_dt')
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        parent_id = self.request.query_params.get('parent')
+        search = self.request.query_params.get('q')
+
+        if parent_id:
+            queryset = queryset.filter(parent_id=parent_id)
+        else:
+            queryset = queryset.filter(parent__isnull=True)
+
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) | Q(text__icontains=search)
+            )
+        return queryset.distinct()
 
     def create(self, request, *args, **kwargs):
-        data = {
-            "title": request.data.get("title"),
-            "text": request.data.get("text"),
-            "parent": request.data.get("parent")
-        }
-        serializer = self.get_serializer(data=data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         snippet = serializer.save()
         return Response(self.get_serializer(snippet).data, status=status.HTTP_201_CREATED)
@@ -83,23 +88,3 @@ class SnippetChildrenView(views.APIView):
         children = snippet.children.all().order_by('-created_dt')
         serializer = SnippetSerializer(children, many=True)
         return Response(serializer.data)
-
-
-class SnippetListView(generics.ListAPIView):
-    """
-    GET /snippets/
-    Returns all top-level snippets (those without a parent).
-    Optional query param:
-        ?q=<text>  → search by title or text
-    """
-    serializer_class = SnippetSerializer
-
-    def get_queryset(self):
-        queryset = Snippet.objects.filter(
-            parent__isnull=True).order_by('-created_dt')
-        search = self.request.query_params.get('q')
-        if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search) | Q(text__icontains=search)
-            )
-        return queryset
