@@ -55,6 +55,21 @@ class SnippetViewSet(viewsets.ModelViewSet):
 class TagViewSet(viewsets.ModelViewSet):
     serializer_class = TagSerializer
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="q",
+                location=OpenApiParameter.QUERY,
+                description="Search tags by name",
+                required=False,
+                type=str,
+            )
+        ],
+        description="List tags. Optionally filter by search query `q`"
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         queryset = Tag.objects.annotate(
             snippet_count=Count('snippets')
