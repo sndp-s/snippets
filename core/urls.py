@@ -1,19 +1,12 @@
-from django.urls import path
-from .views import (
-    SnippetListCreateView,
-    SnippetDetailView,
-    SnippetUpdateView,
-    SnippetDeleteView,
-    SnippetChildrenView,
-)
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+
+from .views import SnippetViewSet, TagViewSet
+
+router = DefaultRouter()
+router.register(r"snippets", SnippetViewSet, basename="snippet")
+router.register(r"tags", TagViewSet, basename="tag")
 
 urlpatterns = [
-    path('snippets/', SnippetListCreateView.as_view(), name='snippet-list-create'),
-    path('snippets/<int:pk>/', SnippetDetailView.as_view(), name='snippet-detail'),
-    path('snippets/<int:pk>/update/',
-         SnippetUpdateView.as_view(), name='snippet-update'),
-    path('snippets/<int:pk>/delete/',
-         SnippetDeleteView.as_view(), name='snippet-delete'),
-    path('snippets/<int:pk>/children/',
-         SnippetChildrenView.as_view(), name='snippet-children'),
+    path("", include(router.urls)),
 ]

@@ -1,16 +1,22 @@
-from rest_framework import generics, status, views
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
 from rest_framework.exceptions import NotFound
 
-from .models import Snippet
-from .serializers import SnippetSerializer
+from .models import Snippet, Tag
+from .serializers import SnippetSerializer, TagSerializer
 
 
-class SnippetListCreateView(generics.ListCreateAPIView):
+class SnippetViewSet(viewsets.ModelViewSet):
     """
-    GET → list top-level snippets
-    POST → create new snippet (with or without parent)
+    Supports:
+    - GET /snippets/  (list)
+    - POST /snippets/  (create)
+    - GET /snippets/<id>/  (retrieve)
+    - PATCH /snippets/<id>/  (update)
+    - DELETE /snippets/<id>/ (delete)
+    - GET /snippets/<id>/children/ (custom children endpoint)
     """
     serializer_class = SnippetSerializer
     queryset = Snippet.objects.all().order_by('-created_dt')
@@ -27,59 +33,15 @@ class SnippetListCreateView(generics.ListCreateAPIView):
 
         if search:
             queryset = queryset.filter(
-                Q(title__icontains=search) | Q(text__icontains=search)
+                Q(title__icontains=search) |
+                Q(text__icontains=search)
             )
+
         return queryset.distinct()
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        snippet = serializer.save()
-        return Response(self.get_serializer(snippet).data, status=status.HTTP_201_CREATED)
-
-
-class SnippetUpdateView(generics.UpdateAPIView):
-    """
-    PATCH /snippets/<id>/
-    Update snippet title, text, or parent.
-    """
-    serializer_class = SnippetSerializer
-    queryset = Snippet.objects.all()
-
-    def update(self, request, *args, **kwargs):
-        snippet = self.get_object()
-        serializer = self.get_serializer(
-            snippet, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        updated = serializer.save()
-        return Response(self.get_serializer(updated).data)
-
-
-class SnippetDeleteView(generics.DestroyAPIView):
-    """
-    DELETE /snippets/<id>/
-    Deletes snippet and cascades its children.
-    """
-    serializer_class = SnippetSerializer
-    queryset = Snippet.objects.all()
-
-
-class SnippetDetailView(generics.RetrieveAPIView):
-    """
-    GET /snippets/<id>/
-    Get snippet details by ID.
-    """
-    serializer_class = SnippetSerializer
-    queryset = Snippet.objects.all()
-
-
-class SnippetChildrenView(views.APIView):
-    """
-    GET /snippets/<id>/children/
-    Returns all direct children of the snippet.
-    """
-
-    def get(self, request, pk):
+    @action(detail=True, methods=['get'])
+    def children(self, request, pk=None):
+        """GET /snippets/<id>/children/"""
         try:
             snippet = Snippet.objects.get(pk=pk)
         except Snippet.DoesNotExist:
@@ -87,4 +49,24 @@ class SnippetChildrenView(views.APIView):
 
         children = snippet.children.all().order_by('-created_dt')
         serializer = SnippetSerializer(children, many=True)
+        return Response(serializer.data)
+
+
+class TagViewSet(viewsets.ModelViewSet):
+    serializer_class = TagSerializer
+
+    def get_queryset(self):
+        return Tag.objects.annotate(
+            snippet_count=models.Count('snippets')
+        ).order_by('name')
+
+    @action(detail=True, methods=['get'])
+    def snippets(self, request, pk=None):
+        """
+        GET /tags/<id>/snippets/
+        Returns all snippets using this tag
+        """
+        tag = self.get_object()
+        snippets = tag.snippets.all().order_by('-created_dt')
+        serializer = SnippetSerializer(snippets, many=True)
         return Response(serializer.data)
