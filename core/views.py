@@ -1,10 +1,11 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db.models import Q
 from rest_framework.exceptions import NotFound
+from django.db.models import Q, Count
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from .models import Snippet, Tag
+from .models import Snippet, Tag, SnippetTag
 from .serializers import SnippetSerializer, TagSerializer
 
 
@@ -38,6 +39,37 @@ class SnippetViewSet(viewsets.ModelViewSet):
             )
 
         return queryset.distinct()
+
+    @extend_schema(
+        description="Create a snippet and attach tags (creating missing ones automatically)",
+        request={
+            "application/json": {
+                "example": {
+                    "title": "Python tips",
+                    "text": "Use list comprehensions",
+                    "tags": ["python", "tips"]
+                }
+            }
+        }
+    )
+    def create(self, request, *args, **kwargs):
+        tags = request.data.pop("tags", [])
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        snippet = serializer.save()
+
+        # handle tags (create if missing + attach)
+        if isinstance(tags, list):
+            for tag_name in tags:
+                tag, _ = Tag.objects.get_or_create(name=tag_name)
+                SnippetTag.objects.get_or_create(snippet=snippet, tag=tag)
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            SnippetSerializer(snippet).data,
+            status=status.HTTP_201_CREATED,
+            headers=headers
+        )
 
     @action(detail=True, methods=['get'])
     def children(self, request, pk=None):
