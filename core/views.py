@@ -51,6 +51,40 @@ class SnippetViewSet(viewsets.ModelViewSet):
         serializer = SnippetSerializer(children, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=["post"])
+    def add_tag(self, request, pk=None):
+        snippet = self.get_object()
+        tag_name = request.data.get("tag")
+
+        if not tag_name:
+            return Response({"error": "Tag name required"}, status=400)
+
+        tag, _ = Tag.objects.get_or_create(name=tag_name)
+        SnippetTag.objects.get_or_create(snippet=snippet, tag=tag)
+
+        return Response({"message": f"Tag '{tag_name}' added."}, status=200)
+
+    @action(detail=True, methods=["post"])
+    def remove_tag(self, request, pk=None):
+        snippet = self.get_object()
+        tag_name = request.data.get("tag")
+
+        if not tag_name:
+            return Response({"error": "Tag name required"}, status=400)
+
+        try:
+            tag = Tag.objects.get(name=tag_name)
+            SnippetTag.objects.filter(snippet=snippet, tag=tag).delete()
+            return Response({"message": f"Tag '{tag_name}' removed."}, status=200)
+        except Tag.DoesNotExist:
+            return Response({"error": "Tag does not exist"}, status=404)
+
+    @action(detail=True, methods=["get"])
+    def tags(self, request, pk=None):
+        snippet = self.get_object()
+        tags = snippet.tags.all().values_list("name", flat=True)
+        return Response({"tags": list(tags)}, status=200)
+
 
 class TagViewSet(viewsets.ModelViewSet):
     serializer_class = TagSerializer
