@@ -56,9 +56,18 @@ class TagViewSet(viewsets.ModelViewSet):
     serializer_class = TagSerializer
 
     def get_queryset(self):
-        return Tag.objects.annotate(
-            snippet_count=models.Count('snippets')
+        queryset = Tag.objects.annotate(
+            snippet_count=Count('snippets')
         ).order_by('name')
+
+        search = self.request.query_params.get("q")
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+            )
+
+        return queryset
 
     @action(detail=True, methods=['get'])
     def snippets(self, request, pk=None):
