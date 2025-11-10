@@ -4,41 +4,124 @@ from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 from django.db.models import Q, Count
 from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 
 from .models import Snippet, Tag, SnippetTag
 from .serializers import SnippetSerializer, TagSerializer
 
 
 class SnippetViewSet(viewsets.ModelViewSet):
-    """
-    Supports:
-    - GET /snippets/  (list)
-    - POST /snippets/  (create)
-    - GET /snippets/<id>/  (retrieve)
-    - PATCH /snippets/<id>/  (update)
-    - DELETE /snippets/<id>/ (delete)
-    - GET /snippets/<id>/children/ (custom children endpoint)
-    """
     serializer_class = SnippetSerializer
     queryset = Snippet.objects.all().order_by('-created_dt')
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        parent_id = self.request.query_params.get('parent')
-        search = self.request.query_params.get('q')
+        """
+        Supports:
+        - ?q=<text>              → case-insensitive search in title/text
+        - ?parent=<id>           → show children of this snippet
+        - ?tags=a,b,c            → include snippets with these tag names
+        - ?tag_mode=any|all      → OR (default) or AND logic for tags
+        - ?exclude_tags=x,y,z    → exclude snippets with these tag names
+        """
+        qs = super().get_queryset()
+        params = self.request.query_params
 
+        parent_id = params.get('parent')
+        search = params.get('q', '').strip()
+        tag_mode = params.get('tag_mode', 'any').lower()
+        tags_param = params.get('tags', '')
+        exclude_param = params.get('exclude_tags', '')
+
+        # 1. Parent filter
         if parent_id:
-            queryset = queryset.filter(parent_id=parent_id)
+            qs = qs.filter(parent_id=parent_id)
         else:
-            queryset = queryset.filter(parent__isnull=True)
+            qs = qs.filter(parent__isnull=True)
 
+        # 2. Text search
         if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search) |
-                Q(text__icontains=search)
-            )
+            qs = qs.filter(Q(title__icontains=search)
+                           | Q(text__icontains=search))
 
-        return queryset.distinct()
+        # 3. Include tags (case-insensitive)
+        if tags_param:
+            tag_names = [t.strip() for t in tags_param.split(',') if t.strip()]
+            # get only tags that exist (case-insensitive)
+            tag_q = Q()
+            for name in tag_names:
+                tag_q |= Q(name__iexact=name)
+            existing_tags = Tag.objects.filter(
+                tag_q).values_list('name', flat=True)
+            existing_tags = list(existing_tags)
+
+            if existing_tags:
+                if tag_mode == 'all':
+                    qs = qs.annotate(
+                        match_count=Count(
+                            'tags',
+                            filter=Q(tags__name__in=existing_tags),
+                            distinct=True
+                        )
+                    ).filter(match_count=len(existing_tags)).distinct()
+                else:  # tag_mode = any
+                    qs = qs.filter(tags__name__in=existing_tags).distinct()
+
+        # 4. Exclude tags (case-insensitive)
+        if exclude_param:
+            exclude_names = [t.strip()
+                             for t in exclude_param.split(',') if t.strip()]
+            exclude_q = Q()
+            for name in exclude_names:
+                exclude_q |= Q(name__iexact=name)
+            exclude_tags = Tag.objects.filter(
+                exclude_q).values_list('name', flat=True)
+            if exclude_tags:
+                qs = qs.exclude(tags__name__in=exclude_tags)
+
+        return qs
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='q',
+                description='Full-text search (case-insensitive) on title or text.',
+                required=False,
+                type=OpenApiTypes.STR
+            ),
+            OpenApiParameter(
+                name='parent',
+                description='Filter snippets by parent ID (children of given snippet).',
+                required=False,
+                type=OpenApiTypes.INT
+            ),
+            OpenApiParameter(
+                name='tags',
+                description='Comma-separated tag names to include (case-insensitive). Example: tags=python,tips',
+                required=False,
+                type=OpenApiTypes.STR
+            ),
+            OpenApiParameter(
+                name='tag_mode',
+                description='"any" (default) → snippet has ANY of tags; "all" → snippet must have ALL tags.',
+                required=False,
+                enum=['any', 'all'],
+                type=OpenApiTypes.STR
+            ),
+            OpenApiParameter(
+                name='exclude_tags',
+                description='Comma-separated tag names to exclude (case-insensitive). Example: exclude_tags=draft,idea',
+                required=False,
+                type=OpenApiTypes.STR
+            ),
+        ],
+        description="List snippets with optional full-text and tag filters.",
+    )
+    def list(self, request, *args, **kwargs):
+        """
+        GET /snippets/
+        Supports text search and tag include/exclude filters.
+        """
+        return super().list(request, *args, **kwargs)
 
     @extend_schema(
         description="Create a snippet and attach tags (creating missing ones automatically)",
