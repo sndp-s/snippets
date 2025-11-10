@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 from django.db.models import Q, Count
+from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
@@ -47,12 +48,11 @@ class SnippetViewSet(viewsets.ModelViewSet):
         if tags_param:
             tag_names = [t.strip() for t in tags_param.split(',') if t.strip()]
             # get only tags that exist (case-insensitive)
-            tag_q = Q()
-            for name in tag_names:
-                tag_q |= Q(name__iexact=name)
-            existing_tags = Tag.objects.filter(
-                tag_q).values_list('name', flat=True)
-            existing_tags = list(existing_tags)
+            normalized_tag_names = [t.lower() for t in tag_names]
+            existing_tags = list(
+                Tag.objects.filter(name__in=normalized_tag_names)
+                .values_list('name', flat=True)
+            )
 
             if existing_tags:
                 if tag_mode == 'all':
@@ -70,11 +70,11 @@ class SnippetViewSet(viewsets.ModelViewSet):
         if exclude_param:
             exclude_names = [t.strip()
                              for t in exclude_param.split(',') if t.strip()]
-            exclude_q = Q()
-            for name in exclude_names:
-                exclude_q |= Q(name__iexact=name)
-            exclude_tags = Tag.objects.filter(
-                exclude_q).values_list('name', flat=True)
+            normalized_exclude_names = [t.lower() for t in exclude_names]
+            exclude_tags = list(
+                Tag.objects.filter(name__in=normalized_exclude_names)
+                .values_list('name', flat=True)
+            )
             if exclude_tags:
                 qs = qs.exclude(tags__name__in=exclude_tags)
 
@@ -143,9 +143,13 @@ class SnippetViewSet(viewsets.ModelViewSet):
 
         # handle tags (create if missing + attach)
         if isinstance(tags, list):
-            for tag_name in tags:
-                tag, _ = Tag.objects.get_or_create(name=tag_name)
-                SnippetTag.objects.get_or_create(snippet=snippet, tag=tag)
+            with transaction.atomic():
+                for tag_name in tags:
+                    tag_name = tag_name.strip().lower()
+                    if tag_name:
+                        tag, _ = Tag.objects.get_or_create(name=tag_name)
+                        SnippetTag.objects.get_or_create(
+                            snippet=snippet, tag=tag)
 
         headers = self.get_success_headers(serializer.data)
         return Response(
@@ -154,6 +158,10 @@ class SnippetViewSet(viewsets.ModelViewSet):
             headers=headers
         )
 
+    @extend_schema(
+        description="Fetch all direct child snippets of this snippet (one level deep).",
+        responses={200: SnippetSerializer(many=True)},
+    )
     @action(detail=True, methods=['get'])
     def children(self, request, pk=None):
         """GET /snippets/<id>/children/"""
@@ -166,7 +174,11 @@ class SnippetViewSet(viewsets.ModelViewSet):
         serializer = SnippetSerializer(children, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=["post"])
+    @extend_schema(
+        description="Add a tag (case-insensitive, auto-creates if missing) to this snippet.",
+        request={"application/json": {"example": {"tag": "python"}}},
+        responses={200: OpenApiTypes.OBJECT},
+    )
     def add_tag(self, request, pk=None):
         snippet = self.get_object()
         tag_name = request.data.get("tag")
@@ -174,12 +186,17 @@ class SnippetViewSet(viewsets.ModelViewSet):
         if not tag_name:
             return Response({"error": "Tag name required"}, status=400)
 
+        tag_name = tag_name.strip().lower()
         tag, _ = Tag.objects.get_or_create(name=tag_name)
         SnippetTag.objects.get_or_create(snippet=snippet, tag=tag)
 
         return Response({"message": f"Tag '{tag_name}' added."}, status=200)
 
-    @action(detail=True, methods=["post"])
+    @extend_schema(
+        description="Remove a tag (case-insensitive) from this snippet.",
+        request={"application/json": {"example": {"tag": "python"}}},
+        responses={200: OpenApiTypes.OBJECT},
+    )
     def remove_tag(self, request, pk=None):
         snippet = self.get_object()
         tag_name = request.data.get("tag")
@@ -188,12 +205,16 @@ class SnippetViewSet(viewsets.ModelViewSet):
             return Response({"error": "Tag name required"}, status=400)
 
         try:
-            tag = Tag.objects.get(name=tag_name)
+            tag = Tag.objects.get(name=tag_name.strip().lower())
             SnippetTag.objects.filter(snippet=snippet, tag=tag).delete()
             return Response({"message": f"Tag '{tag_name}' removed."}, status=200)
         except Tag.DoesNotExist:
             return Response({"error": "Tag does not exist"}, status=404)
 
+    @extend_schema(
+        description="Get all tags attached to this snippet.",
+        responses={200: OpenApiTypes.OBJECT},
+    )
     @action(detail=True, methods=["get"])
     def tags(self, request, pk=None):
         snippet = self.get_object()

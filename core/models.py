@@ -6,6 +6,11 @@ class Tag(models.Model):
     created_dt = models.DateTimeField(auto_now_add=True)
     updated_dt = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        if self.name:
+            self.name = self.name.strip().lower()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.name
 
